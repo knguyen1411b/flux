@@ -6,7 +6,7 @@ import globals from "globals";
 export default tseslint.config(
     // Standalone ignores block for global ignore
     {
-        ignores: ["dist/**", "node_modules/**", "tsup.config.ts"]
+        ignores: ["dist/**", "node_modules/**", "tsup.config.ts", "demo/**"]
     },
     eslint.configs.recommended,
     ...tseslint.configs.recommended,
