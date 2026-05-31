@@ -1,6 +1,8 @@
 export interface FluxOptions {
     lerp?: number;
     wheelMultiplier?: number;
+    wrapper?: HTMLElement | Window;
+    content?: HTMLElement;
 }
 
 export type FluxEventMap = {
@@ -18,6 +20,9 @@ export class Flux {
     private isAnimating = false;
     private isStopped = false;
     private lastTime = 0;
+
+    private wrapper: HTMLElement | Window;
+    private content: HTMLElement;
 
     // Animation configuration for duration-based vs lerp-based scrolling
     private animationType: "lerp" | "duration" = "lerp";
@@ -42,34 +47,57 @@ export class Flux {
         this.lerp = options.lerp ?? 0.1;
         this.wheelMultiplier = options.wheelMultiplier ?? 1;
 
-        if (typeof window === "undefined") return;
+        if (typeof window === "undefined") {
+            this.wrapper = {} as Window;
+            this.content = {} as HTMLElement;
+            return;
+        }
 
-        this.current = window.scrollY;
-        this.target = window.scrollY;
+        this.wrapper = options.wrapper ?? window;
+        this.content = options.content ?? document.documentElement;
 
-        window.addEventListener("wheel", this.onWheel, {
+        this.current = this.getScrollY();
+        this.target = this.getScrollY();
+
+        this.wrapper.addEventListener("wheel", this.onWheel as EventListener, {
             passive: false
         });
 
-        window.addEventListener("scroll", this.onScroll, {
-            passive: true
-        });
+        this.wrapper.addEventListener(
+            "scroll",
+            this.onScroll as EventListener,
+            {
+                passive: true
+            }
+        );
 
         window.addEventListener("resize", this.onResize, {
             passive: true
         });
 
-        window.addEventListener("touchstart", this.onTouchStart, {
-            passive: true
-        });
+        this.wrapper.addEventListener(
+            "touchstart",
+            this.onTouchStart as EventListener,
+            {
+                passive: true
+            }
+        );
 
-        window.addEventListener("touchmove", this.onTouchMove, {
-            passive: false
-        });
+        this.wrapper.addEventListener(
+            "touchmove",
+            this.onTouchMove as EventListener,
+            {
+                passive: false
+            }
+        );
 
-        window.addEventListener("touchend", this.onTouchEnd, {
-            passive: true
-        });
+        this.wrapper.addEventListener(
+            "touchend",
+            this.onTouchEnd as EventListener,
+            {
+                passive: true
+            }
+        );
     }
 
     // Event Emitter Methods
@@ -119,12 +147,35 @@ export class Flux {
         return Math.max(0, Math.min(value, this.getMaxScroll()));
     }
 
+    private getScrollY(): number {
+        if (typeof window === "undefined") return 0;
+        if (this.wrapper === window) {
+            return window.scrollY;
+        } else {
+            return (this.wrapper as HTMLElement).scrollTop;
+        }
+    }
+
+    private setScrollY(value: number) {
+        if (typeof window === "undefined") return;
+        if (this.wrapper === window) {
+            window.scrollTo(window.scrollX, value);
+        } else {
+            (this.wrapper as HTMLElement).scrollTop = value;
+        }
+    }
+
     private getMaxScroll(): number {
         if (typeof window === "undefined") return 0;
-        return Math.max(
-            0,
-            document.documentElement.scrollHeight - window.innerHeight
-        );
+        if (this.wrapper === window) {
+            return Math.max(0, this.content.scrollHeight - window.innerHeight);
+        } else {
+            const wrapperEl = this.wrapper as HTMLElement;
+            return Math.max(
+                0,
+                this.content.scrollHeight - wrapperEl.clientHeight
+            );
+        }
     }
 
     // Start / Stop APIs
@@ -155,7 +206,10 @@ export class Flux {
         if (e.deltaMode === 1) {
             delta *= 16;
         } else if (e.deltaMode === 2) {
-            delta *= window.innerHeight;
+            delta *=
+                this.wrapper === window
+                    ? window.innerHeight
+                    : (this.wrapper as HTMLElement).clientHeight;
         }
 
         this.animationType = "lerp";
@@ -167,8 +221,9 @@ export class Flux {
     private onScroll = () => {
         // Sync position back if user scrolls externally (keyboard, scrollbar, anchors)
         if (!this.isAnimating) {
-            this.current = window.scrollY;
-            this.target = window.scrollY;
+            const scrollY = this.getScrollY();
+            this.current = scrollY;
+            this.target = scrollY;
             this.emitScrollEvent();
         }
     };
@@ -247,7 +302,7 @@ export class Flux {
                 this.animStartCurrent +
                 (this.animTargetY - this.animStartCurrent) * easedT;
 
-            window.scrollTo(window.scrollX, this.current);
+            this.setScrollY(this.current);
             this.emitScrollEvent();
 
             if (t >= 1) {
@@ -259,7 +314,7 @@ export class Flux {
 
             if (Math.abs(diff) < 0.1) {
                 this.current = this.target;
-                window.scrollTo(window.scrollX, this.current);
+                this.setScrollY(this.current);
                 this.emitScrollEvent();
                 this.isAnimating = false;
                 return;
@@ -268,7 +323,7 @@ export class Flux {
             const lerpCoeff = 1 - Math.pow(1 - this.lerp, dt * 60);
             this.current += diff * lerpCoeff;
 
-            window.scrollTo(window.scrollX, this.current);
+            this.setScrollY(this.current);
             this.emitScrollEvent();
         }
 
@@ -285,19 +340,32 @@ export class Flux {
     ) {
         if (typeof window === "undefined" || this.isStopped) return;
 
-        let targetY = 0;
+        let targetY: number;
         if (typeof target === "number") {
             targetY = target;
-        } else if (typeof target === "string") {
-            const element = document.querySelector(target);
+        } else {
+            let element: HTMLElement | null = null;
+            if (typeof target === "string") {
+                element = document.querySelector(target) as HTMLElement;
+            } else if (target instanceof HTMLElement) {
+                element = target;
+            }
+
             if (element instanceof HTMLElement) {
-                targetY = window.scrollY + element.getBoundingClientRect().top;
+                if (this.wrapper === window) {
+                    targetY =
+                        window.scrollY + element.getBoundingClientRect().top;
+                } else {
+                    const wrapperEl = this.wrapper as HTMLElement;
+                    targetY =
+                        element.getBoundingClientRect().top -
+                        wrapperEl.getBoundingClientRect().top +
+                        wrapperEl.scrollTop;
+                }
             } else {
                 console.warn(`[Flux] Target element not found: ${target}`);
                 return;
             }
-        } else if (target instanceof HTMLElement) {
-            targetY = window.scrollY + target.getBoundingClientRect().top;
         }
 
         const clampedY = this.clamp(targetY);
@@ -309,7 +377,7 @@ export class Flux {
             }
             this.target = clampedY;
             this.current = clampedY;
-            window.scrollTo(window.scrollX, clampedY);
+            this.setScrollY(clampedY);
             this.emitScrollEvent();
         } else if (options.duration !== undefined) {
             this.animationType = "duration";
@@ -331,12 +399,29 @@ export class Flux {
 
         cancelAnimationFrame(this.rafId);
 
-        window.removeEventListener("wheel", this.onWheel);
-        window.removeEventListener("scroll", this.onScroll);
+        if (this.wrapper) {
+            this.wrapper.removeEventListener(
+                "wheel",
+                this.onWheel as EventListener
+            );
+            this.wrapper.removeEventListener(
+                "scroll",
+                this.onScroll as EventListener
+            );
+            this.wrapper.removeEventListener(
+                "touchstart",
+                this.onTouchStart as EventListener
+            );
+            this.wrapper.removeEventListener(
+                "touchmove",
+                this.onTouchMove as EventListener
+            );
+            this.wrapper.removeEventListener(
+                "touchend",
+                this.onTouchEnd as EventListener
+            );
+        }
         window.removeEventListener("resize", this.onResize);
-        window.removeEventListener("touchstart", this.onTouchStart);
-        window.removeEventListener("touchmove", this.onTouchMove);
-        window.removeEventListener("touchend", this.onTouchEnd);
 
         this.events = {};
     }
