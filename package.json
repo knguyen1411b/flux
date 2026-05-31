@@ -1,6 +1,6 @@
 {
     "name": "@knguyen1411b/flux",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "description": "A lightweight, performant, and frame-rate independent smooth scrolling library written in TypeScript.",
     "publishConfig": {
         "access": "public"

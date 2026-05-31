@@ -1,6 +1,10 @@
 import { Flux } from "./Flux";
 
-export class FluxRoot extends HTMLElement {
+const SafeHTMLElement = (
+    typeof window !== "undefined" ? HTMLElement : class {}
+) as typeof HTMLElement;
+
+export class FluxRoot extends SafeHTMLElement {
     private fluxInstance: Flux | null = null;
 
     connectedCallback() {
