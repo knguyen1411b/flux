@@ -98,6 +98,29 @@ Unbind all event listeners and cancel active animation frames when destroying co
 flux.destroy();
 ```
 
+### Custom Scroll Containers
+
+By default, Flux smooth scrolls the global window. If you want to enable smooth scrolling inside a specific scrollable element (like a nested `div`), pass `wrapper` and `content` references:
+
+```html
+<!-- Wrapper: the scrollable box with fixed height and overflow -->
+<div class="my-wrapper" style="height: 400px; overflow-y: auto;">
+    <!-- Content: the inner wrapper containing tall content -->
+    <div class="my-content">
+        <p>Lots of content...</p>
+    </div>
+</div>
+```
+
+```typescript
+import { Flux } from "@knguyen1411b/flux";
+
+const flux = new Flux({
+    wrapper: document.querySelector(".my-wrapper"),
+    content: document.querySelector(".my-content")
+});
+```
+
 ---
 
 ## API Reference
@@ -106,10 +129,12 @@ flux.destroy();
 
 #### `FluxOptions`
 
-| Option            | Type     | Default | Description                                                                |
-| :---------------- | :------- | :------ | :------------------------------------------------------------------------- |
-| `lerp`            | `number` | `0.1`   | Damping factor for smoothing. Lower values mean smoother, slower movement. |
-| `wheelMultiplier` | `number` | `1.0`   | Multiplies the native wheel/touch scroll delta.                            |
+| Option            | Type                  | Default                    | Description                                                                |
+| :---------------- | :-------------------- | :------------------------- | :------------------------------------------------------------------------- |
+| `lerp`            | `number`              | `0.1`                      | Damping factor for smoothing. Lower values mean smoother, slower movement. |
+| `wheelMultiplier` | `number`              | `1.0`                      | Multiplies the native wheel/touch scroll delta.                            |
+| `wrapper`         | `HTMLElement\|Window` | `window`                   | The scrollable element container.                                          |
+| `content`         | `HTMLElement`         | `document.documentElement` | The content container inside the wrapper (which holds scrollable content). |
 
 ### Methods
 
