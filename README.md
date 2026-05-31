@@ -142,69 +142,66 @@ const fluxRoot = document.querySelector("flux-root");
 fluxRoot.flux.scrollTo(200);
 ```
 
-### React & Next.js (SSR) Usage
+### React & Next.js (SSR) Integration
 
-Because Next.js and React compile code on the server side by default, browser globals like `window` and `document` are unavailable. You must initialize Flux inside `useEffect` (which runs only on the client) and cleanly destroy the instance when the component unmounts.
+Flux provides a built-in React integration (`ReactFlux` component and `useFlux` hook). It is SSR-friendly and handles setup/cleanup automatically.
 
-#### Page-Level Scroll Example
+#### 1. Page-Level (Root) Scroll
 
-To enable smooth scrolling across the entire page:
-
-```tsx
-"use client"; // Required in Next.js App Router
-
-import { useEffect } from "react";
-import { Flux } from "@knguyen1411b/flux";
-
-export default function SmoothScrollProvider({ children }) {
-    useEffect(() => {
-        // Initialize Flux on page mount
-        const flux = new Flux({
-            lerp: 0.1
-        });
-
-        // Clean up event listeners when component unmounts
-        return () => {
-            flux.destroy();
-        };
-    }, []);
-
-    return <>{children}</>;
-}
-```
-
-#### Custom Container Scroll Example
-
-To smooth scroll a specific `div` container using React refs:
+To enable smooth scrolling across the entire page, wrap your root layout with `<ReactFlux root>` (default is `root = true`):
 
 ```tsx
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Flux } from "@knguyen1411b/flux";
+import { ReactFlux } from "@knguyen1411b/flux";
 
-export default function ScrollableContainer({ children }) {
-    const wrapperRef = useRef<HTMLDivElement>(null);
-    const contentRef = useRef<HTMLDivElement>(null);
+export default function Layout({ children }) {
+    return (
+        <ReactFlux root options={{ lerp: 0.1 }}>
+            {children}
+        </ReactFlux>
+    );
+}
+```
 
-    useEffect(() => {
-        if (!wrapperRef.current || !contentRef.current) return;
+#### 2. Custom Container Scroll
 
-        const flux = new Flux({
-            wrapper: wrapperRef.current,
-            content: contentRef.current,
-            lerp: 0.08
-        });
+To make a specific container scrollable and smooth, set `root={false}`:
 
-        return () => {
-            flux.destroy();
-        };
-    }, []);
+```tsx
+"use client";
+
+import { ReactFlux } from "@knguyen1411b/flux";
+
+export default function ScrollableBox() {
+    return (
+        <ReactFlux
+            root={false}
+            options={{ lerp: 0.08 }}
+            style={{ height: "400px" }}
+        >
+            <p>Lots of content inside here will scroll smoothly...</p>
+        </ReactFlux>
+    );
+}
+```
+
+#### 3. Using the `useFlux` Hook
+
+You can access the active `Flux` instance from any child component inside the `<ReactFlux>` provider to trigger actions like scrolling to sections:
+
+```tsx
+"use client";
+
+import { useFlux } from "@knguyen1411b/flux";
+
+export default function ScrollButton() {
+    const flux = useFlux();
 
     return (
-        <div ref={wrapperRef} style={{ height: "400px", overflowY: "auto" }}>
-            <div ref={contentRef}>{children}</div>
-        </div>
+        <button onClick={() => flux?.scrollTo("#contact")}>
+            Scroll to Contact
+        </button>
     );
 }
 ```
@@ -217,12 +214,13 @@ export default function ScrollableContainer({ children }) {
 
 #### `FluxOptions`
 
-| Option            | Type                  | Default                    | Description                                                                |
-| :---------------- | :-------------------- | :------------------------- | :------------------------------------------------------------------------- |
-| `lerp`            | `number`              | `0.1`                      | Damping factor for smoothing. Lower values mean smoother, slower movement. |
-| `wheelMultiplier` | `number`              | `1.0`                      | Multiplies the native wheel/touch scroll delta.                            |
-| `wrapper`         | `HTMLElement\|Window` | `window`                   | The scrollable element container.                                          |
-| `content`         | `HTMLElement`         | `document.documentElement` | The content container inside the wrapper (which holds scrollable content). |
+| Option            | Type                       | Default                    | Description                                                                |
+| :---------------- | :------------------------- | :------------------------- | :------------------------------------------------------------------------- |
+| `lerp`            | `number`                   | `0.1`                      | Damping factor for smoothing. Lower values mean smoother, slower movement. |
+| `wheelMultiplier` | `number`                   | `1.0`                      | Multiplies the native wheel/touch scroll delta.                            |
+| `wrapper`         | `HTMLElement\|Window`      | `window`                   | The scrollable element container.                                          |
+| `content`         | `HTMLElement`              | `document.documentElement` | The content container inside the wrapper (which holds scrollable content). |
+| `direction`       | `"vertical"\|"horizontal"` | `"vertical"`               | The direction of the smooth scrolling.                                     |
 
 ### Methods
 
@@ -258,6 +256,65 @@ Removes an event listener.
 #### `flux.destroy()`
 
 Cleans up all DOM listeners and cancels animation loops.
+
+### Getters and Setters
+
+- **`flux.scroll`** (`number`, read-only): The current smooth scroll position.
+- **`flux.progress`** (`number`, read-only): The current scroll progress percentage from `0` to `1`.
+- **`flux.direction`** (`"vertical" | "horizontal"`, read-only): The scroll direction.
+- **`flux.lerp`** (`number`): Getter and setter for the damping factor.
+- **`flux.wheelMultiplier`** (`number`): Getter and setter for the wheel scroll multiplier.
+
+---
+
+## GSAP ScrollTrigger Integration
+
+To integrate Flux with GSAP's `ScrollTrigger`, use a scroll proxy to sync the custom scroll positions:
+
+```javascript
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { Flux } from "@knguyen1411b/flux";
+
+gsap.registerPlugin(ScrollTrigger);
+
+const flux = new Flux({
+    lerp: 0.1
+});
+
+// Update ScrollTrigger on scroll
+flux.on("scroll", () => {
+    ScrollTrigger.update();
+});
+
+// Tell ScrollTrigger to use Flux's scroll value
+ScrollTrigger.scrollerProxy(document.body, {
+    scrollTop(value) {
+        if (arguments.length) {
+            flux.scrollTo(value, { immediate: true });
+        }
+        return flux.scroll;
+    },
+    getBoundingClientRect() {
+        return {
+            top: 0,
+            left: 0,
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+    },
+    pinType: document.body.style.transform ? "transform" : "fixed"
+});
+
+// Sync ScrollTrigger's default getter
+ScrollTrigger.defaults({ scroller: document.body });
+```
+
+---
+
+## Accessibility (prefers-reduced-motion)
+
+Flux has native support for the `prefers-reduced-motion` media query. If a user has enabled reduced motion in their operating system, Flux will automatically fall back to instant scrolling (setting the `lerp` factor to `1.0`) to avoid causing motion sickness.
 
 ---
 

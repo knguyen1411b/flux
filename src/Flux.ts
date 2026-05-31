@@ -3,6 +3,7 @@ export interface FluxOptions {
     wheelMultiplier?: number;
     wrapper?: HTMLElement | Window;
     content?: HTMLElement;
+    direction?: "vertical" | "horizontal";
 }
 
 export type FluxEventMap = {
@@ -23,29 +24,38 @@ export class Flux {
 
     private wrapper: HTMLElement | Window;
     private content: HTMLElement;
+    private scrollDirection: "vertical" | "horizontal";
 
     // Animation configuration for duration-based vs lerp-based scrolling
     private animationType: "lerp" | "duration" = "lerp";
     private animStartCurrent = 0;
-    private animTargetY = 0;
+    private animTargetScroll = 0;
     private animStartTime = 0;
     private animDuration = 0; // in seconds
     private animEasing: (t: number) => number = (t) => t;
 
-    // Touch event variables
-    private touchStartY = 0;
-    private touchLastY = 0;
-    private touchSpeedY = 0;
+    // Touch event variables (generic axis tracking)
+    private touchStartPos = 0;
+    private touchLastPos = 0;
+    private touchSpeed = 0;
     private touchLastTime = 0;
 
-    private lerp: number;
-    private wheelMultiplier: number;
+    private _lerp: number;
+    private _wheelMultiplier: number;
 
     private events: { [K in keyof FluxEventMap]?: FluxEventCallback<K>[] } = {};
 
     constructor(options: FluxOptions = {}) {
-        this.lerp = options.lerp ?? 0.1;
-        this.wheelMultiplier = options.wheelMultiplier ?? 1;
+        let userPrefersReducedMotion = false;
+        if (typeof window !== "undefined" && window.matchMedia) {
+            userPrefersReducedMotion = window.matchMedia(
+                "(prefers-reduced-motion: reduce)"
+            ).matches;
+        }
+
+        this._lerp = userPrefersReducedMotion ? 1.0 : (options.lerp ?? 0.1);
+        this._wheelMultiplier = options.wheelMultiplier ?? 1;
+        this.scrollDirection = options.direction ?? "vertical";
 
         if (typeof window === "undefined") {
             this.wrapper = {} as Window;
@@ -56,8 +66,30 @@ export class Flux {
         this.wrapper = options.wrapper ?? window;
         this.content = options.content ?? document.documentElement;
 
-        this.current = this.getScrollY();
-        this.target = this.getScrollY();
+        // Force native scroll-behavior to 'auto' to prevent conflicts with JS scrolling animation
+        const el =
+            this.wrapper === window
+                ? document.documentElement
+                : (this.wrapper as HTMLElement);
+        if (el && el.style) {
+            el.style.scrollBehavior = "auto";
+        }
+        if (
+            this.wrapper === window &&
+            !document.getElementById("flux-style-override")
+        ) {
+            const style = document.createElement("style");
+            style.id = "flux-style-override";
+            style.textContent = `
+                html, body {
+                    scroll-behavior: auto !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        this.current = this.getScroll();
+        this.target = this.getScroll();
 
         this.wrapper.addEventListener("wheel", this.onWheel as EventListener, {
             passive: false
@@ -100,6 +132,36 @@ export class Flux {
         );
     }
 
+    // Public Getters & Setters
+    public get scroll(): number {
+        return this.current;
+    }
+
+    public get progress(): number {
+        const max = this.getMaxScroll();
+        return max > 0 ? this.current / max : 0;
+    }
+
+    public get direction(): "vertical" | "horizontal" {
+        return this.scrollDirection;
+    }
+
+    public get lerp(): number {
+        return this._lerp;
+    }
+
+    public set lerp(value: number) {
+        this._lerp = value;
+    }
+
+    public get wheelMultiplier(): number {
+        return this._wheelMultiplier;
+    }
+
+    public set wheelMultiplier(value: number) {
+        this._wheelMultiplier = value;
+    }
+
     // Event Emitter Methods
     public on<K extends keyof FluxEventMap>(
         event: K,
@@ -129,7 +191,6 @@ export class Flux {
     ) {
         const list = this.events[event];
         if (!list) return;
-        // Slice copy to prevent errors if a callback changes the listeners array during iteration
         const listeners = [...list];
         for (let i = 0; i < listeners.length; i++) {
             listeners[i](data);
@@ -147,34 +208,68 @@ export class Flux {
         return Math.max(0, Math.min(value, this.getMaxScroll()));
     }
 
-    private getScrollY(): number {
+    private getScroll(): number {
         if (typeof window === "undefined") return 0;
-        if (this.wrapper === window) {
-            return window.scrollY;
+        if (this.scrollDirection === "horizontal") {
+            if (this.wrapper === window) {
+                return window.scrollX;
+            } else {
+                return (this.wrapper as HTMLElement).scrollLeft;
+            }
         } else {
-            return (this.wrapper as HTMLElement).scrollTop;
+            if (this.wrapper === window) {
+                return window.scrollY;
+            } else {
+                return (this.wrapper as HTMLElement).scrollTop;
+            }
         }
     }
 
-    private setScrollY(value: number) {
+    private setScroll(value: number) {
         if (typeof window === "undefined") return;
-        if (this.wrapper === window) {
-            window.scrollTo(window.scrollX, value);
+        if (this.scrollDirection === "horizontal") {
+            if (this.wrapper === window) {
+                window.scrollTo(value, window.scrollY);
+            } else {
+                (this.wrapper as HTMLElement).scrollLeft = value;
+            }
         } else {
-            (this.wrapper as HTMLElement).scrollTop = value;
+            if (this.wrapper === window) {
+                window.scrollTo(window.scrollX, value);
+            } else {
+                (this.wrapper as HTMLElement).scrollTop = value;
+            }
         }
     }
 
     private getMaxScroll(): number {
         if (typeof window === "undefined") return 0;
-        if (this.wrapper === window) {
-            return Math.max(0, this.content.scrollHeight - window.innerHeight);
+        if (this.scrollDirection === "horizontal") {
+            if (this.wrapper === window) {
+                return Math.max(
+                    0,
+                    this.content.scrollWidth - window.innerWidth
+                );
+            } else {
+                const wrapperEl = this.wrapper as HTMLElement;
+                return Math.max(
+                    0,
+                    this.content.scrollWidth - wrapperEl.clientWidth
+                );
+            }
         } else {
-            const wrapperEl = this.wrapper as HTMLElement;
-            return Math.max(
-                0,
-                this.content.scrollHeight - wrapperEl.clientHeight
-            );
+            if (this.wrapper === window) {
+                return Math.max(
+                    0,
+                    this.content.scrollHeight - window.innerHeight
+                );
+            } else {
+                const wrapperEl = this.wrapper as HTMLElement;
+                return Math.max(
+                    0,
+                    this.content.scrollHeight - wrapperEl.clientHeight
+                );
+            }
         }
     }
 
@@ -194,26 +289,40 @@ export class Flux {
             return;
         }
 
-        // Allow zoom and horizontal scroll gestures
-        if (e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        if (e.ctrlKey) return;
+
+        // For vertical scrolling, ignore horizontal-dominant wheel gestures
+        if (
+            this.scrollDirection === "vertical" &&
+            Math.abs(e.deltaX) > Math.abs(e.deltaY)
+        ) {
             return;
         }
 
         e.preventDefault();
 
-        // Normalize delta based on deltaMode (0: pixel, 1: line, 2: page)
         let delta = e.deltaY;
+        if (this.scrollDirection === "horizontal") {
+            delta =
+                Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        }
+
+        // Normalize delta based on deltaMode (0: pixel, 1: line, 2: page)
         if (e.deltaMode === 1) {
             delta *= 16;
         } else if (e.deltaMode === 2) {
             delta *=
                 this.wrapper === window
-                    ? window.innerHeight
-                    : (this.wrapper as HTMLElement).clientHeight;
+                    ? this.scrollDirection === "horizontal"
+                        ? window.innerWidth
+                        : window.innerHeight
+                    : this.scrollDirection === "horizontal"
+                      ? (this.wrapper as HTMLElement).clientWidth
+                      : (this.wrapper as HTMLElement).clientHeight;
         }
 
         this.animationType = "lerp";
-        this.target = this.clamp(this.target + delta * this.wheelMultiplier);
+        this.target = this.clamp(this.target + delta * this._wheelMultiplier);
 
         this.startAnimation();
     };
@@ -221,9 +330,9 @@ export class Flux {
     private onScroll = () => {
         // Sync position back if user scrolls externally (keyboard, scrollbar, anchors)
         if (!this.isAnimating) {
-            const scrollY = this.getScrollY();
-            this.current = scrollY;
-            this.target = scrollY;
+            const scroll = this.getScroll();
+            this.current = scroll;
+            this.target = scroll;
             this.emitScrollEvent();
         }
     };
@@ -236,10 +345,14 @@ export class Flux {
 
     private onTouchStart = (e: TouchEvent) => {
         if (this.isStopped) return;
-        this.touchStartY = e.touches[0].clientY;
-        this.touchLastY = e.touches[0].clientY;
+        const pos =
+            this.scrollDirection === "horizontal"
+                ? e.touches[0].clientX
+                : e.touches[0].clientY;
+        this.touchStartPos = pos;
+        this.touchLastPos = pos;
         this.touchLastTime = performance.now();
-        this.touchSpeedY = 0;
+        this.touchSpeed = 0;
     };
 
     private onTouchMove = (e: TouchEvent) => {
@@ -250,20 +363,23 @@ export class Flux {
 
         e.preventDefault(); // Prevent native mobile scrolling
 
-        const clientY = e.touches[0].clientY;
-        const deltaY = this.touchLastY - clientY;
+        const pos =
+            this.scrollDirection === "horizontal"
+                ? e.touches[0].clientX
+                : e.touches[0].clientY;
+        const delta = this.touchLastPos - pos;
         const now = performance.now();
         const dt = now - this.touchLastTime;
 
         if (dt > 0) {
-            this.touchSpeedY = deltaY / dt;
+            this.touchSpeed = delta / dt;
         }
 
-        this.touchLastY = clientY;
+        this.touchLastPos = pos;
         this.touchLastTime = now;
 
         this.animationType = "lerp";
-        this.target = this.clamp(this.target + deltaY);
+        this.target = this.clamp(this.target + delta);
         this.startAnimation();
     };
 
@@ -271,9 +387,9 @@ export class Flux {
         if (this.isStopped) return;
 
         // Apply inertial momentum scroll
-        const absSpeed = Math.abs(this.touchSpeedY);
+        const absSpeed = Math.abs(this.touchSpeed);
         if (absSpeed > 0.1) {
-            const momentum = this.touchSpeedY * 200;
+            const momentum = this.touchSpeed * 200;
             this.target = this.clamp(this.target + momentum);
             this.startAnimation();
         }
@@ -290,7 +406,12 @@ export class Flux {
     private animate = (time: number) => {
         if (!this.isAnimating) return;
 
-        const dt = Math.min((time - this.lastTime) / 1000, 0.1);
+        // Ensure dt is never negative or zero due to discrepancies between performance.now() and RAF timestamps
+        let dt = (time - this.lastTime) / 1000;
+        if (dt <= 0 || isNaN(dt)) {
+            dt = 1 / 60;
+        }
+        dt = Math.min(dt, 0.1);
         this.lastTime = time;
 
         if (this.animationType === "duration") {
@@ -300,9 +421,9 @@ export class Flux {
 
             this.current =
                 this.animStartCurrent +
-                (this.animTargetY - this.animStartCurrent) * easedT;
+                (this.animTargetScroll - this.animStartCurrent) * easedT;
 
-            this.setScrollY(this.current);
+            this.setScroll(this.current);
             this.emitScrollEvent();
 
             if (t >= 1) {
@@ -314,16 +435,16 @@ export class Flux {
 
             if (Math.abs(diff) < 0.1) {
                 this.current = this.target;
-                this.setScrollY(this.current);
+                this.setScroll(this.current);
                 this.emitScrollEvent();
                 this.isAnimating = false;
                 return;
             }
 
-            const lerpCoeff = 1 - Math.pow(1 - this.lerp, dt * 60);
+            const lerpCoeff = 1 - Math.pow(1 - this._lerp, dt * 60);
             this.current += diff * lerpCoeff;
 
-            this.setScrollY(this.current);
+            this.setScroll(this.current);
             this.emitScrollEvent();
         }
 
@@ -340,9 +461,9 @@ export class Flux {
     ) {
         if (typeof window === "undefined" || this.isStopped) return;
 
-        let targetY: number;
+        let targetScroll: number;
         if (typeof target === "number") {
-            targetY = target;
+            targetScroll = target;
         } else {
             let element: HTMLElement | null = null;
             if (typeof target === "string") {
@@ -353,14 +474,22 @@ export class Flux {
 
             if (element instanceof HTMLElement) {
                 if (this.wrapper === window) {
-                    targetY =
-                        window.scrollY + element.getBoundingClientRect().top;
+                    targetScroll =
+                        this.scrollDirection === "horizontal"
+                            ? window.scrollX +
+                              element.getBoundingClientRect().left
+                            : window.scrollY +
+                              element.getBoundingClientRect().top;
                 } else {
                     const wrapperEl = this.wrapper as HTMLElement;
-                    targetY =
-                        element.getBoundingClientRect().top -
-                        wrapperEl.getBoundingClientRect().top +
-                        wrapperEl.scrollTop;
+                    targetScroll =
+                        this.scrollDirection === "horizontal"
+                            ? element.getBoundingClientRect().left -
+                              wrapperEl.getBoundingClientRect().left +
+                              wrapperEl.scrollLeft
+                            : element.getBoundingClientRect().top -
+                              wrapperEl.getBoundingClientRect().top +
+                              wrapperEl.scrollTop;
                 }
             } else {
                 console.warn(`[Flux] Target element not found: ${target}`);
@@ -368,28 +497,28 @@ export class Flux {
             }
         }
 
-        const clampedY = this.clamp(targetY);
+        const clampedScroll = this.clamp(targetScroll);
 
         if (options.immediate) {
             if (this.isAnimating) {
                 cancelAnimationFrame(this.rafId);
                 this.isAnimating = false;
             }
-            this.target = clampedY;
-            this.current = clampedY;
-            this.setScrollY(clampedY);
+            this.target = clampedScroll;
+            this.current = clampedScroll;
+            this.setScroll(clampedScroll);
             this.emitScrollEvent();
         } else if (options.duration !== undefined) {
             this.animationType = "duration";
             this.animStartCurrent = this.current;
-            this.animTargetY = clampedY;
+            this.animTargetScroll = clampedScroll;
             this.animStartTime = performance.now();
             this.animDuration = Math.max(0.001, options.duration);
             this.animEasing = options.easing ?? ((t) => 1 - Math.pow(1 - t, 3)); // cubic ease-out
             this.startAnimation();
         } else {
             this.animationType = "lerp";
-            this.target = clampedY;
+            this.target = clampedScroll;
             this.startAnimation();
         }
     }

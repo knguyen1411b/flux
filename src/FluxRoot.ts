@@ -6,9 +6,19 @@ export class FluxRoot extends HTMLElement {
     connectedCallback() {
         if (typeof window === "undefined") return;
 
+        const directionAttr = this.getAttribute("direction");
+        const direction =
+            directionAttr === "horizontal" ? "horizontal" : "vertical";
+
         // Apply styles to ensure the custom element behaves as a block scroll wrapper
         if (!this.style.display) this.style.display = "block";
-        if (!this.style.overflowY) this.style.overflowY = "auto";
+        if (direction === "horizontal") {
+            if (!this.style.overflowX) this.style.overflowX = "auto";
+            if (!this.style.overflowY) this.style.overflowY = "hidden";
+        } else {
+            if (!this.style.overflowY) this.style.overflowY = "auto";
+            if (!this.style.overflowX) this.style.overflowX = "hidden";
+        }
         if (!this.style.position) this.style.position = "relative";
 
         const lerpAttr = this.getAttribute("lerp");
@@ -33,7 +43,8 @@ export class FluxRoot extends HTMLElement {
             wrapper: this,
             content,
             lerp,
-            wheelMultiplier
+            wheelMultiplier,
+            direction
         });
     }
 
