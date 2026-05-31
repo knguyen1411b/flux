@@ -142,6 +142,73 @@ const fluxRoot = document.querySelector("flux-root");
 fluxRoot.flux.scrollTo(200);
 ```
 
+### React & Next.js (SSR) Usage
+
+Because Next.js and React compile code on the server side by default, browser globals like `window` and `document` are unavailable. You must initialize Flux inside `useEffect` (which runs only on the client) and cleanly destroy the instance when the component unmounts.
+
+#### Page-Level Scroll Example
+
+To enable smooth scrolling across the entire page:
+
+```tsx
+"use client"; // Required in Next.js App Router
+
+import { useEffect } from "react";
+import { Flux } from "@knguyen1411b/flux";
+
+export default function SmoothScrollProvider({ children }) {
+    useEffect(() => {
+        // Initialize Flux on page mount
+        const flux = new Flux({
+            lerp: 0.1
+        });
+
+        // Clean up event listeners when component unmounts
+        return () => {
+            flux.destroy();
+        };
+    }, []);
+
+    return <>{children}</>;
+}
+```
+
+#### Custom Container Scroll Example
+
+To smooth scroll a specific `div` container using React refs:
+
+```tsx
+"use client";
+
+import { useEffect, useRef } from "react";
+import { Flux } from "@knguyen1411b/flux";
+
+export default function ScrollableContainer({ children }) {
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!wrapperRef.current || !contentRef.current) return;
+
+        const flux = new Flux({
+            wrapper: wrapperRef.current,
+            content: contentRef.current,
+            lerp: 0.08
+        });
+
+        return () => {
+            flux.destroy();
+        };
+    }, []);
+
+    return (
+        <div ref={wrapperRef} style={{ height: "400px", overflowY: "auto" }}>
+            <div ref={contentRef}>{children}</div>
+        </div>
+    );
+}
+```
+
 ---
 
 ## API Reference
