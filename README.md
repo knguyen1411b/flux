@@ -121,6 +121,27 @@ const flux = new Flux({
 });
 ```
 
+#### Declarative HTML Wrapper (`<flux-root>`)
+
+For a purely declarative, HTML-only setup, you can wrap your scrollable content inside a custom `<flux-root>` Web Component. The first child element inside `<flux-root>` is automatically treated as the scrollable content:
+
+```html
+<!-- Set up custom scrolling declaratively with attributes -->
+<flux-root lerp="0.08" wheel-multiplier="1.2" style="height: 400px;">
+    <div>
+        <p>Lots of content here...</p>
+    </div>
+</flux-root>
+```
+
+You can access the active JavaScript controller instance directly via the DOM element's `.flux` property:
+
+```typescript
+const fluxRoot = document.querySelector("flux-root");
+// Access the underlaying Flux controller
+fluxRoot.flux.scrollTo(200);
+```
+
 ---
 
 ## API Reference
